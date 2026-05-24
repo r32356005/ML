@@ -1,0 +1,128 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from sklearn.mixture import GaussianMixture
+from mpl_toolkits.mplot3d import Axes3D
+
+# ==========================================
+# 0. 環境設定與資料載入
+# ==========================================
+plt.style.use('seaborn-v0_8-whitegrid')
+
+try:
+    X = np.loadtxt('data1.txt')
+    print(f"資料載入成功！共 {X.shape[0]} 筆樣本，特徵維度為 {X.shape[1]}。")
+except FileNotFoundError:
+    print("找不到 data1.txt，請確認檔案路徑。")
+
+# ==========================================
+# Task (a) & (b): K-means 初始化與訓練 4 元件 GMM
+# ==========================================
+n_components = 4
+# 使用 K-means 進行初始化 (init_params='kmeans')
+gmm = GaussianMixture(n_components=n_components, covariance_type='full', init_params='kmeans', random_state=42)
+gmm.fit(X)
+
+labels = gmm.predict(X)
+
+print("\n=== GMM 估計參數 ===")
+for i in range(n_components):
+    print(f"\nComponent {i+1}:")
+    print(f"混合權重 (pi): {gmm.weights_[i]:.4f}")
+    print(f"平均值 (mu):\n{gmm.means_[i]}")
+    print(f"共變異數矩陣 (Sigma):\n{gmm.covariances_[i]}")
+
+# ==========================================
+# 計算網格與機率密度 (給圖 2 與圖 3 使用)
+# ==========================================
+# 動態計算邊界緩衝空間 (資料全距的 20%)，避免等高線與 3D 圖變形
+x_padding = (X[:, 0].max() - X[:, 0].min()) * 0.2
+y_padding = (X[:, 1].max() - X[:, 1].min()) * 0.2
+
+x_min, x_max = X[:, 0].min() - x_padding, X[:, 0].max() + x_padding
+y_min, y_max = X[:, 1].min() - y_padding, X[:, 1].max() + y_padding
+
+xx, yy = np.meshgrid(np.linspace(x_min, x_max, 500), np.linspace(y_min, y_max, 500))
+grid = np.c_[xx.ravel(), yy.ravel()]
+
+# 計算網格點的機率密度
+log_prob = gmm.score_samples(grid)
+Z = np.exp(log_prob).reshape(xx.shape)
+
+# ==========================================
+# 圖 1: 依 GMM 分群著色的散佈圖 (Scatter Plot)
+# ==========================================
+plt.figure(figsize=(8, 6))
+scatter = plt.scatter(X[:, 0], X[:, 1], c=labels, cmap='tab10', s=15, alpha=0.8)
+plt.colorbar(scatter, label='Component Assignment')
+# 標示群集中心
+plt.scatter(gmm.means_[:, 0], gmm.means_[:, 1], marker='X', color='red', s=150, label='Means')
+
+plt.title('1. GMM Component Assignments (Scatter Plot)', fontsize=14)
+plt.xlabel('Feature 1')
+plt.ylabel('Feature 2')
+plt.legend()
+plt.tight_layout()
+plt.show()
+
+# ==========================================
+# 圖 2: 學習到的高斯元件等高線圖 (Contour Plot)
+# ==========================================
+plt.figure(figsize=(8, 6))
+# 畫上淡淡的原始資料點當作背景
+plt.scatter(X[:, 0], X[:, 1], color='gray', s=10, alpha=0.3)
+# 畫出等高線
+contour = plt.contour(xx, yy, Z, levels=10, cmap='viridis', linewidths=2)
+plt.colorbar(contour, label='Density Level')
+# 標示群集中心
+plt.scatter(gmm.means_[:, 0], gmm.means_[:, 1], marker='X', color='red', s=150, label='Means')
+
+plt.title('2. Learned Gaussian Components (Contour Plot)', fontsize=14)
+plt.xlabel('Feature 1')
+plt.ylabel('Feature 2')
+plt.legend()
+plt.tight_layout()
+plt.show()
+
+# ==========================================
+# 圖 3: 3-D 機率密度視覺化圖
+# ==========================================
+fig = plt.figure(figsize=(10, 8))
+ax = fig.add_subplot(111, projection='3d')
+surf = ax.plot_surface(xx, yy, Z, cmap='viridis', edgecolor='none', alpha=0.8)
+
+ax.set_title('3. 3-D Probability Density of Fitted GMM', fontsize=14)
+ax.set_xlabel('Feature 1')
+ax.set_ylabel('Feature 2')
+ax.set_zlabel('Probability Density')
+fig.colorbar(surf, ax=ax, shrink=0.5, aspect=10, label='Density')
+ax.view_init(elev=30, azim=45)
+plt.show()
+
+# ==========================================
+# 圖 4: 模型選擇與比較 (BIC/AIC vs n_components)
+# ==========================================
+n_components_range = range(1, 9)
+bic_scores = []
+aic_scores = []
+
+for k in n_components_range:
+    gmm_test = GaussianMixture(n_components=k, covariance_type='full', random_state=42)
+    gmm_test.fit(X)
+    bic_scores.append(gmm_test.bic(X))
+    aic_scores.append(gmm_test.aic(X))
+
+plt.figure(figsize=(10, 6))
+plt.plot(n_components_range, bic_scores, label='BIC', marker='o', linestyle='-')
+plt.plot(n_components_range, aic_scores, label='AIC', marker='s', linestyle='--')
+
+plt.title('4. Model Selection: BIC & AIC Scores by Number of Components', fontsize=14)
+plt.xlabel('Number of Components (K)')
+plt.ylabel('Information Criterion Score (Lower is better)')
+plt.xticks(n_components_range)
+plt.legend()
+plt.grid(True, alpha=0.3)
+plt.tight_layout()
+plt.show()
+
+best_k_bic = n_components_range[np.argmin(bic_scores)]
+print(f"\n根據 BIC 曲線，最佳的元件數量為: {best_k_bic}")
